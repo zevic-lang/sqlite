@@ -1,6 +1,7 @@
 module Sqlite
 
 import Zevic.Test
+import Zevic.Text
 
 fn newDb() -> Db {
     mut db: Db = Db.Open(":memory:").Unwrap()
@@ -9,7 +10,7 @@ fn newDb() -> Db {
 }
 
 test "Version looks like a version number" {
-    Test.True(Version().StartsWith("3."))
+    Test.True(Text.StartsWith(Version(), "3."))
 }
 
 test "Exec creates a table and Changes counts rows" {
