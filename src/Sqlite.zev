@@ -1,0 +1,204 @@
+module Sqlite
+
+// SQLite for Zevic.
+//
+//     mut db: Db = Db.Open("app.db")?
+//     defer db.Close()
+//     db.Exec("CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, name TEXT)")?
+//
+// Only Zevic types appear in the public API; the C types stay in this file.
+
+extern "C" {
+    fn zv_sqlite_libversion() -> CString
+    fn zv_sqlite_open(path: CString) -> *CVoid
+    fn zv_sqlite_close(db: *CVoid) -> CInt
+    fn zv_sqlite_errcode(db: *CVoid) -> CInt
+    fn zv_sqlite_errmsg(db: *CVoid) -> CString
+    fn zv_sqlite_exec(db: *CVoid, sql: CString) -> CInt
+    fn zv_sqlite_prepare(db: *CVoid, sql: CString) -> *CVoid
+    fn zv_sqlite_finalize(st: *CVoid) -> CInt
+    fn zv_sqlite_step(st: *CVoid) -> CInt
+    fn zv_sqlite_reset(st: *CVoid) -> CInt
+    fn zv_sqlite_bind_text(st: *CVoid, i: CInt, v: CString) -> CInt
+    fn zv_sqlite_bind_i64(st: *CVoid, i: CInt, v: CLongLong) -> CInt
+    fn zv_sqlite_bind_f64(st: *CVoid, i: CInt, v: CDouble) -> CInt
+    fn zv_sqlite_bind_null(st: *CVoid, i: CInt) -> CInt
+    fn zv_sqlite_column_count(st: *CVoid) -> CInt
+    fn zv_sqlite_column_name(st: *CVoid, i: CInt) -> CString
+    fn zv_sqlite_column_type(st: *CVoid, i: CInt) -> CInt
+    fn zv_sqlite_column_text(st: *CVoid, i: CInt) -> CString
+    fn zv_sqlite_column_i64(st: *CVoid, i: CInt) -> CLongLong
+    fn zv_sqlite_column_f64(st: *CVoid, i: CInt) -> CDouble
+    fn zv_sqlite_changes(db: *CVoid) -> CInt
+    fn zv_sqlite_last_insert_rowid(db: *CVoid) -> CLongLong
+}
+
+// result codes of sqlite3_step
+let stepRow: I32 = 100
+let stepDone: I32 = 101
+
+// column types of sqlite3_column_type
+let typeNull: I32 = 5
+
+/// The version of the SQLite library that is linked, for example "3.45.1".
+fn Version() -> String {
+    String.FromCLossy(zv_sqlite_libversion())
+}
+
+fn dbError(db: *CVoid, what: String) -> Error {
+    let msg: String = String.FromCLossy(zv_sqlite_errmsg(db))
+    Error.New(ErrorKind.Other, "sqlite: ${what}: ${msg}")
+}
+
+class Db {
+    h: *CVoid
+    closed: Bool = false
+
+    fn Init(h: *CVoid) {
+        this.h = h
+    }
+
+    /// Opens (and creates if needed) a database file. ":memory:" gives a private in-memory database.
+    static fn Open(path: String) -> Result<Db, Error> {
+        let h: *CVoid = zv_sqlite_open(path.ToC())
+        if (h == Null) {
+            return Err(Error.New(ErrorKind.Other, "sqlite: out of memory"))
+        }
+        if (zv_sqlite_errcode(h).ToI32() != 0) {
+            let err: Error = dbError(h, "cannot open ${path}")
+            zv_sqlite_close(h)
+            return Err(err)
+        }
+        Ok(Db.New(h))
+    }
+
+    /// Closes the database. Calling it twice is harmless. Finalize (Close) every Stmt first.
+    mut fn Close() {
+        if (!this.closed) {
+            zv_sqlite_close(this.h)
+            this.closed = true
+        }
+    }
+
+    /// Runs one or more SQL statements that return no rows.
+    fn Exec(sql: String) -> Result<Unit, Error> {
+        Assert(!this.closed, "sqlite: the database is closed")
+        if (zv_sqlite_exec(this.h, sql.ToC()).ToI32() != 0) {
+            return Err(dbError(this.h, "exec"))
+        }
+        Ok(())
+    }
+
+    /// Compiles one SQL statement. Parameters are written ?1, ?2, ... and bound with Bind*.
+    fn Prepare(sql: String) -> Result<Stmt, Error> {
+        Assert(!this.closed, "sqlite: the database is closed")
+        let st: *CVoid = zv_sqlite_prepare(this.h, sql.ToC())
+        if (st == Null) {
+            return Err(dbError(this.h, "prepare"))
+        }
+        Ok(Stmt.New(st, this.h))
+    }
+
+    /// The number of rows changed by the last INSERT, UPDATE or DELETE.
+    fn Changes() -> I32 {
+        zv_sqlite_changes(this.h).ToI32()
+    }
+
+    /// The rowid of the last successful INSERT.
+    fn LastInsertId() -> I64 {
+        zv_sqlite_last_insert_rowid(this.h).ToI64()
+    }
+}
+
+class Stmt {
+    st: *CVoid
+    db: *CVoid
+    closed: Bool = false
+
+    fn Init(st: *CVoid, db: *CVoid) {
+        this.st = st
+        this.db = db
+    }
+
+    /// Releases the statement. Calling it twice is harmless.
+    mut fn Close() {
+        if (!this.closed) {
+            zv_sqlite_finalize(this.st)
+            this.closed = true
+        }
+    }
+
+    // ---- binding (the first parameter is 1) ----
+
+    fn BindText(i: I32, v: String) -> Result<Unit, Error> {
+        this.check(zv_sqlite_bind_text(this.st, i.ToCInt(), v.ToC()).ToI32(), "bind")
+    }
+
+    fn BindI64(i: I32, v: I64) -> Result<Unit, Error> {
+        this.check(zv_sqlite_bind_i64(this.st, i.ToCInt(), v.ToCLongLong()).ToI32(), "bind")
+    }
+
+    fn BindF64(i: I32, v: F64) -> Result<Unit, Error> {
+        this.check(zv_sqlite_bind_f64(this.st, i.ToCInt(), v.ToCDouble()).ToI32(), "bind")
+    }
+
+    fn BindNull(i: I32) -> Result<Unit, Error> {
+        this.check(zv_sqlite_bind_null(this.st, i.ToCInt()).ToI32(), "bind")
+    }
+
+    // ---- running ----
+
+    /// Moves to the next row. Ok(true) when there is a row, Ok(false) when the statement is done.
+    fn Step() -> Result<Bool, Error> {
+        Assert(!this.closed, "sqlite: the statement is closed")
+        let rc: I32 = zv_sqlite_step(this.st).ToI32()
+        if (rc == stepRow) {
+            return Ok(true)
+        }
+        if (rc == stepDone) {
+            return Ok(false)
+        }
+        Err(dbError(this.db, "step"))
+    }
+
+    /// Runs the statement again with new bindings (the bindings are kept; bind again to change them).
+    fn Reset() -> Result<Unit, Error> {
+        this.check(zv_sqlite_reset(this.st).ToI32(), "reset")
+    }
+
+    // ---- reading the current row (the first column is 0) ----
+
+    fn ColumnCount() -> I32 {
+        zv_sqlite_column_count(this.st).ToI32()
+    }
+
+    fn ColumnName(i: I32) -> String {
+        String.FromCLossy(zv_sqlite_column_name(this.st, i.ToCInt()))
+    }
+
+    fn IsNull(i: I32) -> Bool {
+        zv_sqlite_column_type(this.st, i.ToCInt()).ToI32() == typeNull
+    }
+
+    /// The column as text (a NULL column gives "").
+    fn Text(i: I32) -> String {
+        String.FromCLossy(zv_sqlite_column_text(this.st, i.ToCInt()))
+    }
+
+    /// The column as an integer (a NULL column gives 0; text is converted by SQLite).
+    fn I64(i: I32) -> I64 {
+        zv_sqlite_column_i64(this.st, i.ToCInt()).ToI64()
+    }
+
+    /// The column as a float (a NULL column gives 0.0).
+    fn F64(i: I32) -> F64 {
+        zv_sqlite_column_f64(this.st, i.ToCInt()).ToF64()
+    }
+
+    fn check(rc: I32, what: String) -> Result<Unit, Error> {
+        if (rc != 0) {
+            return Err(dbError(this.db, what))
+        }
+        Ok(())
+    }
+}
