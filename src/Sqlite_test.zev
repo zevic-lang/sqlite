@@ -1,0 +1,97 @@
+module Sqlite
+
+import Zevic.Test
+
+fn newDb() -> Db {
+    mut db: Db = Db.Open(":memory:").Unwrap()
+    db.Exec("CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT, score REAL)").Unwrap()
+    db
+}
+
+test "Version looks like a version number" {
+    Test.True(Version().StartsWith("3."))
+}
+
+test "Exec creates a table and Changes counts rows" {
+    mut db: Db = newDb()
+    defer db.Close()
+    db.Exec("INSERT INTO people (name, score) VALUES ('Ann', 1.5), ('Bob', 2.5)").Unwrap()
+    Test.Equal(db.Changes(), 2)
+    Test.Equal(db.LastInsertId(), 2)
+}
+
+test "Prepare, bind and read rows" {
+    mut db: Db = newDb()
+    defer db.Close()
+
+    mut ins: Stmt = db.Prepare("INSERT INTO people (name, score) VALUES (?1, ?2)").Unwrap()
+    ins.BindText(1, "Ann").Unwrap()
+    ins.BindF64(2, 1.5).Unwrap()
+    Test.Equal(ins.Step().Unwrap(), false)
+    ins.Reset().Unwrap()
+    ins.BindText(1, "Bob").Unwrap()
+    ins.BindF64(2, 2.5).Unwrap()
+    Test.Equal(ins.Step().Unwrap(), false)
+    ins.Close()
+
+    mut q: Stmt = db.Prepare("SELECT id, name, score FROM people ORDER BY id").Unwrap()
+    defer q.Close()
+    Test.Equal(q.ColumnCount(), 3)
+    Test.Equal(q.ColumnName(1), "name")
+
+    Test.Equal(q.Step().Unwrap(), true)
+    Test.Equal(q.I64(0), 1)
+    Test.Equal(q.Text(1), "Ann")
+    Test.Equal(q.F64(2), 1.5)
+
+    Test.Equal(q.Step().Unwrap(), true)
+    Test.Equal(q.Text(1), "Bob")
+
+    Test.Equal(q.Step().Unwrap(), false)
+}
+
+test "BindNull gives a NULL column" {
+    mut db: Db = newDb()
+    defer db.Close()
+    mut ins: Stmt = db.Prepare("INSERT INTO people (name) VALUES (?1)").Unwrap()
+    ins.BindNull(1).Unwrap()
+    ins.Step().Unwrap()
+    ins.Close()
+
+    mut q: Stmt = db.Prepare("SELECT name FROM people").Unwrap()
+    defer q.Close()
+    Test.Equal(q.Step().Unwrap(), true)
+    Test.True(q.IsNull(0))
+    Test.Equal(q.Text(0), "")
+}
+
+test "text keeps non-ASCII characters" {
+    mut db: Db = newDb()
+    defer db.Close()
+    mut ins: Stmt = db.Prepare("INSERT INTO people (name) VALUES (?1)").Unwrap()
+    ins.BindText(1, "ゼヴィック").Unwrap()
+    ins.Step().Unwrap()
+    ins.Close()
+
+    mut q: Stmt = db.Prepare("SELECT name FROM people").Unwrap()
+    defer q.Close()
+    Test.Equal(q.Step().Unwrap(), true)
+    Test.Equal(q.Text(0), "ゼヴィック")
+}
+
+test "SQL errors come back as Err" {
+    mut db: Db = newDb()
+    defer db.Close()
+    Test.Err(db.Exec("THIS IS NOT SQL"))
+    Test.Err(db.Prepare("SELECT * FROM missing_table"))
+}
+
+test "Close can be called twice" {
+    mut db: Db = newDb()
+    db.Close()
+    db.Close()
+}
+
+test "Open fails for a path that cannot exist" {
+    Test.Err(Db.Open("/this/directory/does/not/exist/a.db"))
+}
