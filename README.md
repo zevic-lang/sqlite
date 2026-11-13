@@ -4,17 +4,17 @@ SQLite for [Zevic](https://github.com/zevic-lang/zevic). The public API uses onl
 
 ## Install
 
-Needs the SQLite library and its development files (`apt install libsqlite3-dev`, `brew install sqlite`).
+Needs the SQLite library and its development files (`apt install libsqlite3-dev`; macOS has them). The tests run on Linux and macOS in CI. Windows is not tested yet.
 
 ```
-zevpm get zevic-lang/zevic-sqlite@v0.1.0
+zevpm get zevic-lang/sqlite@v0.1.0
 ```
 
 or in `zevic.toml`:
 
 ```
 [deps]
-Sqlite = { git = "https://github.com/zevic-lang/zevic-sqlite", tag = "v0.1.0" }
+Sqlite = { git = "https://github.com/zevic-lang/sqlite", tag = "v0.1.0" }
 ```
 
 ## Use
@@ -75,6 +75,10 @@ fn Main() {
 ```
 zevpm test
 ```
+
+## Releases
+
+A push to `main` that passes the tests in CI is released by the workflow when `version` in `zevic.toml` has no tag yet: it creates the tag `vX.Y.Z` and a GitHub release whose notes are the `## X.Y.Z` section of `CHANGELOG.md`. To release, raise `version`, add that section, and push to `main`.
 
 ## License
 
