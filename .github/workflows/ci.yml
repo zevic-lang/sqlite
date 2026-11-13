@@ -1,0 +1,85 @@
+name: ci
+
+# Every push to main and every pull request builds zevic and runs the tests on Linux and macOS.
+#
+# A push to main that passes the tests also releases: when the `version` in zevic.toml has no tag yet,
+# the release job creates the tag vX.Y.Z and a GitHub release (the notes are the `## X.Y.Z` section of CHANGELOG.md).
+# To release: raise `version` in zevic.toml, add a `## X.Y.Z` section to CHANGELOG.md, push to main.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # the zevic that builds and tests the package
+  ZEVIC_REF: v0.4.1
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      ZEVIC_HOME: ${{ github.workspace }}/zevic
+      ZEVIC: ${{ github.workspace }}/zevic/build/zevic
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: zevic-lang/zevic
+          ref: ${{ env.ZEVIC_REF }}
+          path: zevic
+
+      # zevic turns Zevic into LLVM IR and asks clang to build it; macOS has clang and SQLite already
+      - name: Install clang and SQLite (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libsqlite3-dev
+
+      - name: Build zevic
+        run: make -C zevic
+
+      - name: Test
+        run: zevic/build/zevpm2 test
+
+  release:
+    name: release
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Release the version in zevic.toml if it has no tag yet
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NAME="$(sed -n 's/^name = "\(.*\)"/\1/p' zevic.toml | head -n 1)"
+          VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' zevic.toml | head -n 1)"
+          TAG="v$VERSION"
+          if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
+            echo "$TAG already exists: nothing to release"
+            exit 0
+          fi
+          # the changelog has to describe the version that is released
+          grep -q "^## $VERSION\$" CHANGELOG.md
+          awk -v v="$VERSION" '$0 == "## " v { on = 1; next } /^## / { on = 0 } on' CHANGELOG.md > notes.md
+          git archive --format=tar.gz --prefix="$NAME-$VERSION/" -o "$NAME-$VERSION.tar.gz" HEAD
+          gh release create "$TAG" "$NAME-$VERSION.tar.gz" --target "$GITHUB_SHA" --title "$TAG" --notes-file notes.md
+          echo "released $TAG"
