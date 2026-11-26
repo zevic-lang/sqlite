@@ -7,14 +7,14 @@ SQLite for [Zevic](https://github.com/zevic-lang/zevic). The public API uses onl
 Needs the SQLite library and its development files (`apt install libsqlite3-dev`; macOS has them). The tests run on Linux and macOS in CI. Windows is not tested yet.
 
 ```
-zevpm get zevic-lang/sqlite@v0.1.0
+zevpm get zevic-lang/sqlite@v0.5.0
 ```
 
 or in `zevic.toml`:
 
 ```
 [deps]
-Sqlite = { git = "https://github.com/zevic-lang/sqlite", tag = "v0.1.0" }
+Sqlite = { git = "https://github.com/zevic-lang/sqlite", tag = "v0.5.0" }
 ```
 
 ## Use
