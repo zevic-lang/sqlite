@@ -51,8 +51,8 @@ fn dbError(db: *CVoid, what: String) -> Error {
 }
 
 class Db {
-    h: *CVoid
-    closed: Bool = false
+    let h: *CVoid
+    mut closed: Bool = false
 
     fn Init(h: *CVoid) {
         this.h = h
@@ -111,9 +111,9 @@ class Db {
 }
 
 class Stmt {
-    st: *CVoid
-    db: *CVoid
-    closed: Bool = false
+    let st: *CVoid
+    let db: *CVoid
+    mut closed: Bool = false
 
     fn Init(st: *CVoid, db: *CVoid) {
         this.st = st
