@@ -2,7 +2,7 @@
 name = "Sqlite"
 version = "0.1.0"
 kind = "lib"
-zevic = ">=0.4"
+zevic = ">=0.5"
 
 [native]
 libs = ["sqlite3"]
