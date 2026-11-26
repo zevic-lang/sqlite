@@ -51,7 +51,7 @@ jobs:
         run: make -C zevic
 
       - name: Test
-        run: zevic/build/zevpm2 test
+        run: zevic/build/zevpm test
 
   release:
     name: release
