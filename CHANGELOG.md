@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
 - No C code any more: `import C "sqlite3.h"` reads the header, and the 64 lines of `native/zv_sqlite.c` are gone. Needs Zevic 0.6 (`import C`). The public API is the same.
 

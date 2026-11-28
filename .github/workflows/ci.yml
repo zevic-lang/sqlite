@@ -17,7 +17,7 @@ permissions:
 
 env:
   # the zevic that builds and tests the package
-  ZEVIC_REF: v0.5.0
+  ZEVIC_REF: v0.6.0
 
 jobs:
   test:
